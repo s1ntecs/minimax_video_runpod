@@ -1,4 +1,6 @@
 # Torch/torchvision/torchaudio are pinned by /opt/comfyui-runtime-constraints.txt
-# in the RunPod base image. Keep these breaking majors out of the H3 runtime.
-transformers>=4.50.3,<5
-huggingface-hub>=0.34.4,<1.0
+# in the immutable RunPod CUDA 13 base image.
+# These exact versions were resolved together against ComfyUI v0.34.0 and
+# RunPod SDK 1.12.0 during the production Docker build preflight.
+transformers==4.57.6
+huggingface-hub==0.36.2
