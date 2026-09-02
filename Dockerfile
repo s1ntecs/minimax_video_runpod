@@ -29,7 +29,9 @@ COPY requirements.txt constraints.txt /app/
 
 # Isolate our Python packages from the interactive ComfyUI environment shipped
 # in the base image, while reusing its tested CUDA-matched Torch installation.
-RUN python -m venv --system-site-packages /opt/h3-venv \
+# The RunPod base exposes /usr/bin/python3.12 but intentionally has no `python`
+# command until its own entrypoint runs, so use the absolute interpreter here.
+RUN /usr/bin/python3.12 -m venv --system-site-packages /opt/h3-venv \
     && /opt/h3-venv/bin/python -m pip install --no-cache-dir --upgrade "pip==25.2"
 
 # Fetch immutable ComfyUI source. The pinned commit is the v0.34.0 release.
