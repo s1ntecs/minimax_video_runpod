@@ -1,20 +1,26 @@
 # MiniMax H3 Ref2VA — RunPod Serverless
 
-Production-oriented RunPod Serverless worker for MiniMax H3 **Ref2VA** on Blackwell GPUs (RTX 5090 / RTX PRO 6000 class) using native ComfyUI H3 nodes.
+Production-oriented RunPod Serverless worker for MiniMax H3 **Ref2VA**, optimized for the CUDA 13 / Blackwell path and designed to fail early when versions or model files are wrong.
 
-## Why this stack
+For the complete copy/paste build and deployment procedure, read **[RUNBOOK.md](RUNBOOK.md)**.
 
-- Base image is pinned to `runpod/comfyui:1.4.7-cuda13.0` instead of `latest`.
-- CUDA/PyTorch come from the pinned RunPod image and are not reinstalled by this repo.
-- H3 Ref2VA uses `minimax_h3_ref2va_pruned_int8_convrot.safetensors`.
-- Text encoder uses `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`.
-- The optional fast path uses the dedicated `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` LoRA.
-- No H3 custom node is installed: current ComfyUI has native MiniMax H3 / Ref2VA support.
-- Model files live on a RunPod Network Volume instead of inside the Docker image.
+## Pinned runtime
 
-## Files downloaded to the Network Volume
+The deployment intentionally avoids floating core components:
 
-The worker bootstraps these files from `Comfy-Org/MiniMax-H3` on first start:
+```text
+RunPod base:       runpod/comfyui:1.4.7-cuda13.0
+PyTorch/CUDA:      base-image CUDA 13 pins (PyTorch 2.10 path)
+ComfyUI core:      v0.34.0 / 12d5279438bfefc058a269eae805ceab6047777f
+RunPod Python SDK: 1.12.0
+H3 model revision: dc559027db79c174125df4d827db55cd11178860
+```
+
+The ComfyUI bundled inside the RunPod image is **not** used as the H3 core. The Docker build installs the pinned H3-compatible ComfyUI source into `/opt/comfyui-h3` while reusing the base image's tested CUDA/Torch stack.
+
+## Models on the Network Volume
+
+First startup resolves these files against the pinned `Comfy-Org/MiniMax-H3` revision:
 
 ```text
 /runpod-volume/models/
@@ -29,29 +35,56 @@ The worker bootstraps these files from `Comfy-Org/MiniMax-H3` on first start:
     └── minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors
 ```
 
-Downloads are skipped when a non-empty file already exists, so the large weights are paid for only on the first Network Volume initialization.
-
-## RunPod deployment
-
-1. Create a RunPod Network Volume with enough free space (recommend at least 80 GB to leave room for outputs/cache).
-2. Create a Serverless endpoint from this GitHub repository/branch.
-3. Attach the Network Volume at `/runpod-volume`.
-4. Use a CUDA-13-capable Blackwell GPU for the intended fast profile.
-5. Do **not** override the container command; the image runs `/app/start.sh`.
-
-Optional environment variables:
+Downloads are protected by a Network Volume file lock so concurrent cold starts cannot corrupt the same model file. Once verified, the worker writes:
 
 ```text
-HF_TOKEN=<only needed if Hugging Face access requires it>
-INFERENCE_TIMEOUT=1800
-COMFYUI_STARTUP_TIMEOUT=180
-MAX_INLINE_OUTPUT_MB=18
-SKIP_MODEL_DOWNLOAD=0
+/runpod-volume/models/.minimax_h3_ref2va_manifest.json
 ```
 
-## Request format
+## Reliability checks
 
-The worker intentionally accepts **ComfyUI API-format workflows**, not UI-format workflow JSON. Export from ComfyUI using `Save (API Format)` / the API workflow export.
+The image or worker deliberately fails instead of silently continuing when:
+
+- ComfyUI dependencies cannot resolve against the CUDA-specific Torch pins;
+- the RunPod SDK handler utilities do not import;
+- the pinned ComfyUI source does not contain the expected Ref2VA API;
+- the ComfyUI node graph cannot import during the CPU build smoke test;
+- `/runpod-volume` is missing or read-only;
+- the required model files are missing;
+- CUDA is unavailable;
+- `MiniMaxH3ReferenceToVideo` is not registered after ComfyUI startup;
+- the submitted workflow is invalid;
+- inference exceeds its timeout;
+- ComfyUI completes without a saved output.
+
+## Job isolation
+
+H3 is treated as one full-GPU job per worker. `concurrency_modifier` is fixed to `1`; scale horizontally by adding workers instead of running multiple H3 jobs on one GPU.
+
+Each RunPod job gets its own local input directory. Exact input filenames in the API workflow are rewritten to that job directory, and save/output prefixes are scoped to the job ID. Persistent results therefore land under:
+
+```text
+/runpod-volume/outputs/<JOB_ID>/...
+```
+
+URL inputs use RunPod SDK 1.12's hardened downloader rather than an unrestricted raw HTTP fetch.
+
+## Build
+
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  --progress=plain \
+  -t minimax-h3-ref2va:local \
+  --load \
+  .
+```
+
+See [RUNBOOK.md](RUNBOOK.md) before publishing or deploying the image.
+
+## Request contract
+
+The worker accepts a **ComfyUI API-format workflow**:
 
 ```json
 {
@@ -63,7 +96,7 @@ The worker intentionally accepts **ComfyUI API-format workflows**, not UI-format
       }
     ],
     "workflow": {
-      "...": "ComfyUI API-format nodes"
+      "...": "complete ComfyUI API-format workflow"
     },
     "timeout": 1800,
     "inline_output": false
@@ -71,30 +104,16 @@ The worker intentionally accepts **ComfyUI API-format workflows**, not UI-format
 }
 ```
 
-Each entry in `files` supports either `url` or `base64`. The saved filename is what your workflow's `LoadImage` node must reference.
+Each `files` entry supports exactly one of `url` or `base64`. Prefer URLs for real reference video/audio payloads because RunPod queue requests have gateway payload limits.
+
+The pinned Ref2VA node supports up to 9 reference images, 3 reference videos, 3 reference-video audio tracks, and 3 standalone audio references. `MAX_INPUT_FILES=20` covers the full set.
 
 ## Output
 
-The handler waits for the ComfyUI prompt to complete and returns discovered video/image/audio outputs with their Network Volume path, byte size, node id, and filename. Set `inline_output=true` only for small files; outputs larger than `MAX_INLINE_OUTPUT_MB` are not base64-inlined.
+The response contains the RunPod job/prompt IDs and saved output metadata. Large files remain on the Network Volume and can be accessed through RunPod's S3-compatible Network Volume API.
 
-## Reliability choices
+For very small outputs, `inline_output=true` can include base64. The container default is `MAX_INLINE_OUTPUT_MB=6`, deliberately conservative because base64 increases payload size and queue-based `/run` requests/results have tighter gateway limits than raw files on the Network Volume.
 
-The container fails early when:
+## Important acceptance test
 
-- the pinned base image no longer contains `/opt/comfyui-baked/main.py`;
-- PyTorch is older than 2.10;
-- the PyTorch build is not CUDA 13;
-- a required model download is empty/incomplete;
-- ComfyUI does not become healthy before the startup timeout;
-- ComfyUI rejects the submitted workflow;
-- inference exceeds the configured timeout.
-
-`transformers`, `huggingface-hub`, Torch, CUDA libraries and ComfyUI dependencies are deliberately **not re-pinned or upgraded here**. They remain the mutually tested set baked into the pinned RunPod ComfyUI image; installing a second dependency stack on top is a common source of H3 startup/import failures.
-
-## Local build smoke test
-
-```bash
-docker build --platform linux/amd64 -t minimax-h3-ref2va-runpod .
-```
-
-The Docker build performs Python compilation plus CUDA/PyTorch/base-layout assertions. A real H3 inference test still requires a compatible NVIDIA GPU and the model files; a CPU-only CI build cannot prove GPU kernel/runtime correctness.
+A successful Docker build proves dependency/import/startup compatibility, but it cannot prove CUDA kernel execution or visual reference adherence without a real GPU. Before increasing the endpoint beyond one worker, run a real Ref2VA generation and visually confirm that the result actually follows the references. The exact procedure is in [RUNBOOK.md](RUNBOOK.md).
