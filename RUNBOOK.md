@@ -1,37 +1,64 @@
-# MiniMax H3 Ref2VA RunPod Serverless — Build & Deployment Runbook
+# MiniMax H3 Ref2VA RunPod Serverless — exact build & launch guide
 
-This is the step-by-step path to build, publish, deploy, and validate the worker in this repository.
+This is the end-to-end procedure for the worker in this repository. Follow it in order for the first deployment. Do not upgrade individual CUDA, Torch, ComfyUI, RunPod SDK, or H3 model pins until one real GPU Ref2VA generation has passed.
 
-## 0. What is pinned
+## 1. What is locked
 
-The worker deliberately avoids floating core versions:
+The build uses immutable/controlled core versions:
 
-- Base image: `runpod/comfyui:1.4.7-cuda13.0` (used for its CUDA 13 / PyTorch 2.10 runtime, not for its bundled ComfyUI core).
-- ComfyUI: v0.34.0 commit `12d5279438bfefc058a269eae805ceab6047777f`.
-- RunPod Python SDK: `1.12.0`.
-- MiniMax H3 model repository revision: `dc559027db79c174125df4d827db55cd11178860`.
-- Ref2VA diffusion model: `minimax_h3_ref2va_pruned_int8_convrot.safetensors`.
-- Text encoder: `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`.
-- Video VAE: `minimax_h3_video_vae_fp16.safetensors`.
-- Audio VAE: `minimax_h3_audio_vae_fp32.safetensors`.
-- Turbo LoRA: `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`.
+```text
+RunPod base tag:
+  runpod/comfyui:1.4.7-cuda13.0
 
-Do not change these pins before the first successful GPU smoke test.
+RunPod linux/amd64 base digest:
+  sha256:bad26aad809a442a0d2674827d58c03f95686d0ea6d0d0e0cbebacd787488797
 
-## 1. Prerequisites
+ComfyUI:
+  v0.34.0
+  commit 12d5279438bfefc058a269eae805ceab6047777f
 
-You need:
+RunPod Python SDK:
+  1.12.0
+
+MiniMax H3 model repository revision:
+  dc559027db79c174125df4d827db55cd11178860
+```
+
+The `FROM` line uses **tag + digest**. The RunPod image contributes the tested CUDA 13 / PyTorch 2.10 stack. Its older bundled ComfyUI is not used for H3; the Docker build installs the pinned H3-compatible ComfyUI source into `/opt/comfyui-h3`.
+
+Required H3 files are resolved onto the Network Volume:
+
+```text
+/runpod-volume/models/diffusion_models/
+  minimax_h3_ref2va_pruned_int8_convrot.safetensors
+
+/runpod-volume/models/text_encoders/
+  qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+
+/runpod-volume/models/vae/
+  minimax_h3_video_vae_fp16.safetensors
+  minimax_h3_audio_vae_fp32.safetensors
+
+/runpod-volume/models/loras/
+  minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors
+```
+
+## 2. Prerequisites
+
+Install/have:
 
 - Docker with Buildx.
-- A Docker registry account (Docker Hub is the simplest path).
-- A RunPod account and API key.
-- A RunPod Network Volume. Use **100 GB** for the first deployment so there is comfortable room for models and generated outputs.
-- An NVIDIA Blackwell GPU for the intended CUDA 13 fast path. Start with one worker and one GPU. RTX 5090-class 32 GB or a larger Blackwell GPU is the intended target.
-- A Hugging Face token is optional for the currently public model repository but can be set as `HF_TOKEN`.
+- A Docker registry account, for example Docker Hub.
+- RunPod account and API key.
+- A RunPod Network Volume. Use **100 GB** for the first deployment.
+- A Blackwell GPU for the intended CUDA 13 path, for example RTX 5090 / RTX PRO 6000 if available in your selected RunPod datacenter.
+- Python 3 locally only if you want to use the included request builder. It has no third-party dependencies.
 
-## 2. Check out the code
+A Hugging Face token is currently optional for the public files, but the worker supports `HF_TOKEN` if access requirements change.
 
-Until the hardening PR is merged:
+## 3. Clone the hardened PR branch
+
+Until PR #2 is merged:
 
 ```bash
 git clone https://github.com/s1ntecs/minimax_video_runpod.git
@@ -40,16 +67,24 @@ git fetch origin
 git checkout fix/h3-ref2va-production-hardening
 ```
 
-After the PR is merged:
+Verify:
 
 ```bash
-git checkout main
-git pull --ff-only
+git status
+git branch --show-current
 ```
 
-## 3. Build locally first
+Expected branch:
 
-The image is Linux AMD64. Build with plain progress so dependency failures are visible:
+```text
+fix/h3-ref2va-production-hardening
+```
+
+After PR #2 is merged, use `main` instead.
+
+## 4. Build the container locally
+
+Run from the repository root:
 
 ```bash
 docker buildx build \
@@ -60,27 +95,39 @@ docker buildx build \
   .
 ```
 
-A successful build verifies, without a GPU:
+Do not deploy if this command fails.
 
-- the pinned ComfyUI source can be fetched;
-- its dependencies resolve without replacing the CUDA-matched Torch stack;
-- `pip check` passes;
-- `handler.py` and `download_models.py` compile;
-- the RunPod 1.12 hardened URL downloader imports;
-- Torch is at least 2.10 and is a CUDA 13 build;
-- the pinned source contains `MiniMaxH3ReferenceToVideo`;
-- expected Ref2VA dynamic image/video inputs exist;
-- the complete ComfyUI node graph passes `--quick-test-for-ci --cpu`.
+The Docker build intentionally tests more than syntax. It verifies:
 
-If the build fails, **do not deploy it**. Fix the build rather than bypassing an assertion.
+```text
+base image digest is fixed
+pinned ComfyUI source downloads
+ComfyUI dependencies resolve against the CUDA/Torch constraints
+pip check passes
+handler imports
+RunPod 1.12 hardened downloader imports
+bundled quality workflow parses and stays 20-step res_multistep/simple
+bundled Turbo workflow parses and stays 4-step Euler/simple + Ref2VA LoRA + 12/3 shift
+MiniMaxH3ReferenceToVideo exists in the pinned ComfyUI source
+Ref2VA dynamic limits are 9 images / 3 videos / 3 paired video audios / 3 audios
+Torch >= 2.10
+Torch CUDA build is 13.x
+full ComfyUI node graph passes --quick-test-for-ci --cpu
+```
 
-## 4. Publish the exact image
+If an upstream dependency becomes incompatible, the intended behavior is for the **image build to fail**, rather than discovering the break only after paying for a GPU worker.
 
-Replace `<DOCKERHUB_USER>` with your Docker Hub username:
+## 5. Push the exact image to Docker Hub
+
+Log in:
 
 ```bash
 docker login
+```
 
+Replace `<DOCKERHUB_USER>`:
+
+```bash
 docker buildx build \
   --platform linux/amd64 \
   --progress=plain \
@@ -89,16 +136,19 @@ docker buildx build \
   .
 ```
 
-Use a versioned tag, not `latest`, for the first validation. Record the digest printed after push. After the GPU smoke test succeeds, prefer deploying by immutable digest.
+Use a versioned tag for the first deployment. Do not use `latest`.
 
-## 5. Create the RunPod Network Volume
+Keep the digest printed by Buildx after the push. After the real GPU smoke test succeeds, configure RunPod to use your published image by digest for maximum reproducibility.
+
+## 6. Create the RunPod Network Volume
 
 In RunPod:
 
 1. Open **Storage**.
-2. Click **New Network Volume**.
-3. Pick a datacenter that also has your target GPU.
-4. Create a **100 GB** volume such as `minimax-h3-models`.
+2. Create a new Network Volume.
+3. Choose a datacenter where your target GPU is also available.
+4. Use **100 GB** initially.
+5. A practical name is `minimax-h3-models`.
 
 Serverless mounts a Network Volume at the fixed path:
 
@@ -106,7 +156,7 @@ Serverless mounts a Network Volume at the fixed path:
 /runpod-volume
 ```
 
-The worker persists:
+This worker persists:
 
 ```text
 /runpod-volume/models/
@@ -114,27 +164,31 @@ The worker persists:
 /runpod-volume/.locks/
 ```
 
-## 6. Create the Serverless endpoint
+Inputs are deliberately **not** shared. They live on the worker's local container disk under `/tmp/minimax-h3/input/<JOB_ID>/` and are removed after each job.
 
-Create a **Queue-based** Serverless endpoint from the image from step 4.
+If you intend to retrieve output through RunPod's S3-compatible Network Volume API, choose a datacenter where that API is supported.
 
-Recommended initial validation settings:
+## 7. Create the RunPod Serverless endpoint
+
+Create a **Queue-based Serverless endpoint** using the image pushed in step 5.
+
+For the first validation use:
 
 ```text
-GPU count:          1
-Workers min:        0
-Workers max:        1
-Allowed CUDA:       13.0
-Execution timeout:  3600 seconds
-FlashBoot:          enabled if available
-Network Volume:     attach the volume from step 5
+GPU per worker: 1
+Minimum workers: 0
+Maximum workers: 1
+Network Volume: attach the volume from step 6
+Execution timeout: allow up to 3600 seconds
 ```
 
-Use one worker during the first validation. The worker code forces concurrency to **1 job per GPU worker**; scale horizontally with more workers after validation.
+Choose the Blackwell GPU you intend to run in production.
+
+Do not raise maximum workers yet. First let one worker initialize the volume and pass a real generation. RunPod explicitly warns about concurrent writes to the same Network Volume; this worker also serializes model initialization with a volume lock, but the safest bootstrap is still one worker.
 
 ### Environment variables
 
-Recommended values:
+Recommended first deployment:
 
 ```text
 INFERENCE_TIMEOUT=1800
@@ -149,28 +203,42 @@ SKIP_MODEL_DOWNLOAD=0
 Optional:
 
 ```text
-HF_TOKEN=<your Hugging Face token>
+HF_TOKEN=<your token>
 ```
 
-Do not override `COMFYUI_DIR`, `COMFYUI_COMMIT`, `HF_MODEL_REVISION`, `MODEL_ROOT`, `INPUT_ROOT`, or `OUTPUT_ROOT` for the first validated deployment.
+Do not override these pinned/internal paths or revisions on the first deployment:
 
-## 7. First worker boot
+```text
+COMFYUI_DIR
+COMFYUI_COMMIT
+HF_MODEL_REVISION
+MODEL_ROOT
+INPUT_ROOT
+OUTPUT_ROOT
+```
 
-Startup is deliberately strict:
+The startup script derives RunPod SDK's streamed URL cap from `MAX_INPUT_MB`, so the default 512 MiB per-file limit is enforced while downloading rather than only after download.
 
-1. Verify `/runpod-volume` exists and is writable.
-2. Acquire `/runpod-volume/.locks/minimax-h3-ref2va.lock` so simultaneous cold starts cannot corrupt model files.
-3. Resolve required weights against the pinned Hugging Face revision.
-4. Write `/runpod-volume/models/.minimax_h3_ref2va_manifest.json`.
-5. Start pinned ComfyUI v0.34.0.
-6. Wait for `/system_stats`.
-7. Verify `/object_info/MiniMaxH3ReferenceToVideo`.
-8. Start the RunPod worker.
-9. Run SDK fitness checks for CUDA, model files, and the Ref2VA node.
+## 8. What happens during the first worker startup
 
-If the volume contains weights from the previous unpinned worker but no new manifest, the first hardened boot intentionally re-resolves them against the pinned revision. Later boots reuse the verified files.
+The worker performs this sequence:
 
-Healthy startup logs include:
+1. Confirms `/runpod-volume` exists and is writable.
+2. Acquires `/runpod-volume/.locks/minimax-h3-ref2va.lock`.
+3. Resolves all five required H3 files against the fixed Hugging Face revision.
+4. Writes a provenance manifest:
+
+```text
+/runpod-volume/models/.minimax_h3_ref2va_manifest.json
+```
+
+5. Starts pinned ComfyUI v0.34.0.
+6. Waits for `/system_stats`.
+7. Calls `/object_info/MiniMaxH3ReferenceToVideo` and refuses to start the worker if the node is absent.
+8. Starts RunPod Serverless.
+9. RunPod worker fitness checks verify CUDA, required model files, and the live Ref2VA node.
+
+Healthy logs include:
 
 ```text
 [models] model lock acquired
@@ -178,99 +246,114 @@ Healthy startup logs include:
 [startup] ComfyUI is ready and MiniMaxH3ReferenceToVideo is registered
 ```
 
-## 8. Get a Ref2VA API workflow
+If the volume contains files from the older pre-hardening worker but has no pinned manifest, the hardened worker intentionally resolves them once against the immutable revision before trusting them.
 
-The request must contain a **ComfyUI API-format workflow**, not a normal UI-format workflow.
+## 9. Use the ready-made API workflows
 
-### Quality / baseline
+You do **not** need to manually export a ComfyUI workflow for the normal 2-image case.
 
-A public API-format H3 R2V workflow is available at:
-
-`https://github.com/TheTerrasque/minimax-h3-frontend/blob/main/resources/workflows_api/video_minimax_h3_r2v.api.json`
-
-It already uses the same Ref2VA model, Qwen encoder, both VAEs, `MiniMaxH3ReferenceToVideo`, and native `SaveVideo`.
-
-Change each `LoadImage` / `LoadVideo` filename to exactly match the corresponding `input.files[].name` value.
-
-Example workflow input:
-
-```json
-{
-  "class_type": "LoadImage",
-  "inputs": {
-    "image": "reference_1.png"
-  }
-}
-```
-
-Then the request must contain a file named exactly `reference_1.png`. The worker rewrites that exact filename to a job-isolated input path before queueing the workflow.
-
-### Turbo Ref2VA 4-step
-
-Use ModelTC's Ref2VA Turbo workflow:
-
-`https://github.com/ModelTC/Minimax-H3-Turbo/blob/main/example_workflows/video_minimax_h3_ref2v_lightx2v_turbo.json`
-
-Open it in current/pinned ComfyUI and export **API Format**. Before using it confirm:
+Bundled quality graph:
 
 ```text
-Base model: minimax_h3_ref2va_pruned_int8_convrot.safetensors
-LoRA:       minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors
-Steps:      4
-Task node:  MiniMaxH3ReferenceToVideo
+workflows/ref2va_quality_2ref.api.json
 ```
 
-Do not substitute an FL2VA Turbo LoRA for the Ref2VA path.
-
-## 9. Request wrapper
-
-Prefer URL inputs. Queue-based `/run` has a **10 MB request/response payload limit**, while `/runsync` has **20 MB**. Large base64 reference images/video/audio can be rejected by the gateway before the handler runs.
-
-Example:
-
-```json
-{
-  "input": {
-    "files": [
-      {
-        "name": "reference_1.png",
-        "url": "https://your-public-host.example/reference_1.png"
-      },
-      {
-        "name": "reference_2.png",
-        "url": "https://your-public-host.example/reference_2.png"
-      }
-    ],
-    "workflow": {
-      "PASTE_THE_COMPLETE_COMFYUI_API_WORKFLOW_HERE": true
-    },
-    "timeout": 1800,
-    "inline_output": false
-  }
-}
-```
-
-Each file accepts exactly one of `url` or `base64`. URL downloads use RunPod SDK 1.12's hardened downloader with SSRF protections and a streamed size cap.
-
-Current Ref2VA supports up to:
+Recipe:
 
 ```text
-9 reference images
-3 reference videos
-3 reference-video audio tracks
-3 standalone reference audio tracks
+20 steps
+res_multistep
+simple scheduler
+no Turbo LoRA
+0.5 MP / 16:9 default
+ref_image_size=match
 ```
 
-The worker's `MAX_INPUT_FILES=20` covers the full 18-file Ref2VA set.
+Bundled fast graph:
 
-## 10. Send the first request
+```text
+workflows/ref2va_turbo_4step_2ref.api.json
+```
+
+Recipe:
+
+```text
+Ref2VA Turbo LoRA v0.1 strength 1.0
+4 steps
+Euler
+simple scheduler
+MiniMax H3 video/audio shift 12/3
+0.5 MP / 16:9 default, approximately the 960x544 Turbo training scale
+ref_image_size=match
+```
+
+Both expect exactly:
+
+```text
+reference_1.png -> <Picture 1>
+reference_2.png -> <Picture 2>
+```
+
+For 1 image, 3+ images, reference video, or reference audio, export/construct another API-format graph and keep the native dynamic keys exactly, for example:
+
+```text
+ref_images.ref_image_0
+ref_images.ref_image_1
+ref_videos.ref_video_0
+ref_video_audios.ref_video_audio_0
+ref_audios.ref_audio_0
+```
+
+The native maximum is 9 images + 3 videos + 3 paired video soundtracks + 3 standalone audio references.
+
+## 10. Build `request.json` automatically
+
+The simplest path is the included script.
+
+### Turbo request
+
+```bash
+python scripts/build_request.py \
+  --mode turbo \
+  --ref1 "https://YOUR_PUBLIC_HOST/reference1.jpg" \
+  --ref2 "https://YOUR_PUBLIC_HOST/reference2.jpg" \
+  --prompt "Use <Picture 1> and <Picture 2> as visual references. Preserve their identity and appearance. Generate a coherent cinematic shot with natural subject motion and camera movement." \
+  --seconds 5 \
+  --seed 42 \
+  --timeout 1800 \
+  --output request.json
+```
+
+### Quality request
+
+Use the same command with:
+
+```text
+--mode quality
+```
+
+The script embeds the complete API workflow into `request.json` and sets:
+
+```text
+node 138: prompt
+node 129: seed
+node 132: duration
+reference_1.png URL
+reference_2.png URL
+```
+
+It defaults to `inline_output=false`, which is correct for normal video output.
+
+## 11. Send the RunPod request
+
+Set:
 
 ```bash
 export RUNPOD_API_KEY="YOUR_RUNPOD_API_KEY"
 export ENDPOINT_ID="YOUR_ENDPOINT_ID"
 ```
 
-Save the complete payload as `request.json`, then use async `/run`:
+Submit asynchronously:
 
 ```bash
 curl --request POST \
@@ -280,7 +363,9 @@ curl --request POST \
   --data @request.json
 ```
 
-Poll the returned job ID:
+The response contains the RunPod job ID.
+
+Poll it:
 
 ```bash
 curl --request GET \
@@ -288,7 +373,7 @@ curl --request GET \
   --header "Authorization: Bearer ${RUNPOD_API_KEY}"
 ```
 
-Health:
+Endpoint health:
 
 ```bash
 curl --request GET \
@@ -296,32 +381,46 @@ curl --request GET \
   --header "Authorization: Bearer ${RUNPOD_API_KEY}"
 ```
 
-For H3, async `/run` is the safer default because generation can exceed the convenient synchronous wait window.
+Use async `/run` for H3 instead of relying on a long synchronous connection.
 
-## 11. Output behavior and payload limits
+## 12. Request and response size rules
 
-Every save node is automatically scoped to the RunPod job ID. Persistent output path:
+Prefer public `http(s)` URLs for reference images/video/audio.
 
-```text
-/runpod-volume/outputs/<JOB_ID>/...
-```
-
-RunPod queue payload limits matter:
+RunPod queue gateway limits are important:
 
 ```text
-/run:     10 MB
-/runsync: 20 MB
+/run request/response payload:     10 MB
+/runsync request/response payload: 20 MB
 ```
 
-Base64 adds roughly one third to the raw file size, plus JSON overhead. The container therefore defaults to:
+Base64 expands raw data by roughly one third, so large reference media should not be placed directly in the request JSON.
+
+For the same reason, the worker defaults to:
 
 ```text
 MAX_INLINE_OUTPUT_MB=6
 ```
 
-With `inline_output=true`, only sufficiently small outputs are embedded. For normal H3 videos, prefer `inline_output=false` and retrieve the persistent file through the Network Volume S3 API or copy it to your own object storage.
+Normal H3 videos should use:
 
-Network Volume S3 path mapping:
+```json
+"inline_output": false
+```
+
+## 13. Output location
+
+Every save node is rewritten to a unique path using both RunPod job ID and ComfyUI save-node ID. This avoids collisions across jobs and across multiple save nodes in one workflow.
+
+Persistent files land under:
+
+```text
+/runpod-volume/outputs/<JOB_ID>/...
+```
+
+For production video delivery, retrieve/copy those files through the Network Volume S3-compatible API or your own object storage.
+
+Network Volume mapping is:
 
 ```text
 /runpod-volume/outputs/<JOB_ID>/file.mp4
@@ -329,77 +428,120 @@ Network Volume S3 path mapping:
 s3://<NETWORK_VOLUME_ID>/outputs/<JOB_ID>/file.mp4
 ```
 
-## 12. First GPU smoke-test checklist
+## 14. Mandatory first GPU smoke test
 
-Do not increase `workers max` until:
+Before increasing `maximum workers`, verify all of these:
 
-- Docker build passes without bypassing checks.
-- Logs show the pinned model manifest.
+- Docker image built without bypassing any assertion.
+- Worker startup produced the model manifest.
 - Logs show `MiniMaxH3ReferenceToVideo is registered`.
-- `/health` shows the endpoint can accept work.
-- A real request reaches `COMPLETED`.
-- The returned video visibly follows the references rather than only the text prompt.
-- Audio/video decoding succeeds.
-- Output exists under `/runpod-volume/outputs/<JOB_ID>/`.
-- A second worker boot reuses verified model files rather than downloading them again.
+- `/health` shows a worker can accept jobs.
+- Turbo request reaches `COMPLETED`.
+- Quality request reaches `COMPLETED`.
+- Output MP4 opens and contains synchronized audio/video.
+- **The generated video actually follows `<Picture 1>` / `<Picture 2>` visually.** A technically completed graph is not sufficient if references were wired incorrectly.
+- Output exists under the correct job directory on the Network Volume.
+- A later worker boot reuses the verified model files rather than resolving them from scratch.
 
-The visual reference-adherence check is mandatory: a graph can technically finish even when its reference wiring is wrong.
+After this passes, increase worker count as required. Keep in-worker concurrency at **1**; this repository intentionally scales H3 horizontally instead of trying to place two full generations on one GPU.
 
-## 13. Common failures
+## 15. Common failures
+
+### Docker build fails during `pip check` or ComfyUI quick test
+
+Do not remove the check. The version set is no longer compatible with the pinned runtime. Inspect the first dependency/import error in the build log.
+
+### Docker cannot pull the base digest
+
+Make sure the build target is:
+
+```text
+linux/amd64
+```
+
+and that Docker can access Docker Hub. Do not silently replace the digest with `latest`.
 
 ### `/runpod-volume is missing`
 
-Attach the Network Volume in the Serverless endpoint Advanced settings.
+The Network Volume is not attached to the Serverless endpoint.
 
 ### `MiniMaxH3ReferenceToVideo is missing`
 
-Do not redirect the worker to the old ComfyUI baked into the RunPod image. Use this repository's image unchanged.
+The worker is not running the pinned ComfyUI source expected by this repository. Do not redirect `COMFYUI_DIR` to the old baked ComfyUI.
 
 ### `Workflow validation failed`
 
-Usually the workflow is UI-format instead of API-format, a model filename differs, or a dynamic reference input is not connected correctly.
+Check the returned `node_errors`. Typical causes are a wrong model filename, UI-format JSON instead of API-format JSON, or malformed dynamic reference keys.
+
+If using the included 2-ref workflows, do not rename `reference_1.png` / `reference_2.png` inside only one side of the request. The request builder keeps them consistent automatically.
 
 ### References appear ignored
 
-Verify the `MiniMaxH3ReferenceToVideo` API node contains keys such as:
+Inspect the API workflow's `MiniMaxH3ReferenceToVideo` node. For two images it must contain:
 
 ```text
-ref_images.ref_image_0
-ref_images.ref_image_1
+ref_images.ref_image_0 -> LoadImage reference_1.png
+ref_images.ref_image_1 -> LoadImage reference_2.png
 ```
 
-and each `LoadImage` filename exactly matches `input.files[].name`.
+Also make the prompt explicitly use `<Picture 1>` and `<Picture 2>`.
+
+### Turbo looks broken
+
+Turbo is not "quality workflow with steps changed to 4". The complete matched recipe is required:
+
+```text
+minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors
+strength 1.0
+Euler
+simple
+4 steps
+MiniMaxH3SigmaShift video=12 audio=3
+```
+
+Use the bundled Turbo workflow instead of manually changing individual fields.
 
 ### CUDA OOM
 
-The worker already enforces one job per GPU. Reduce resolution/duration, use `ref_image_size="match"` instead of `max`, and for the accelerated path verify the dedicated Ref2VA 4-step LoRA/workflow. If it still does not fit, use a larger-VRAM Blackwell GPU.
+The worker already forces concurrency to one. First reduce resolution/duration and keep `ref_image_size=match`. If the job still does not fit, use a larger-VRAM Blackwell GPU.
 
-### Models download every boot
+### A URL input larger than 512 MiB fails
 
-Verify this persists on the volume:
+That is the configured per-file protection. Raise `MAX_INPUT_MB` only if you intentionally need larger reference media. The startup script automatically applies the same byte limit to the RunPod hardened downloader.
+
+### Worker resolves model files every boot
+
+Verify this persists:
 
 ```text
 /runpod-volume/models/.minimax_h3_ref2va_manifest.json
 ```
 
-### Job completes but no output is returned
+If it disappears, the endpoint is not using the intended persistent Network Volume.
 
-The API workflow needs a real save node such as `SaveVideo`. The worker deliberately treats "completed with no saved output" as an error.
+### Job finishes but response has no saved output
 
-### Inline/base64 response disappears or gateway rejects it
+The graph needs a save node such as `SaveVideo`. The worker intentionally treats a completed graph with no saved output as an error.
 
-Set `inline_output=false`. Retrieve the file from Network Volume/S3. Do not raise the inline limit just to force a video through the JSON response.
+### Gateway rejects inline output
 
-## 14. After the first successful GPU generation
+Set:
 
-Only after the real smoke test:
+```json
+"inline_output": false
+```
 
-1. Pin the published Docker image by digest in RunPod.
-2. Increase `workers max` if needed.
-3. Keep per-worker concurrency at 1.
-4. Choose a production output transport: Network Volume S3 or your own object store for large videos.
-5. Benchmark quality mode vs Ref2VA Turbo 4-step using the same seed/references before making Turbo the default.
+and retrieve the persistent file from Network Volume/S3. Do not raise the inline threshold simply to force a video through JSON.
 
-## 15. What the repository can and cannot prove before deployment
+## 16. What is still impossible to prove before a real GPU run
 
-The Docker build performs strong dependency/import/startup validation, but it cannot prove CUDA kernel execution or visual reference adherence without an actual NVIDIA GPU and loaded model files. The final acceptance test is the real Ref2VA generation in step 12.
+The repository now performs extensive deterministic build/import/workflow/startup checks, but a CPU Docker build cannot prove:
+
+```text
+actual Blackwell CUDA kernel execution
+real VRAM headroom for your chosen resolution/duration/reference count
+visual identity/reference adherence
+real audio quality in the Ref2VA Turbo v0.1 path
+```
+
+The final acceptance criterion is therefore the real GPU smoke test in step 14. Keep PR #2 as draft until that test succeeds.
