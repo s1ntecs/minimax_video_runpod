@@ -42,12 +42,47 @@ Downloads are protected by a Network Volume file lock so concurrent cold starts 
 /runpod-volume/models/.minimax_h3_ref2va_manifest.json
 ```
 
+## Ready API workflows
+
+The repository includes two already-exported **ComfyUI API-format** graphs:
+
+```text
+workflows/ref2va_quality_2ref.api.json
+  20 steps · res_multistep · simple · no Turbo LoRA
+
+workflows/ref2va_turbo_4step_2ref.api.json
+  4 steps · euler · simple · Ref2VA Turbo LoRA 1.0 · H3 shift 12/3
+```
+
+Both examples expect:
+
+```text
+reference_1.png -> <Picture 1>
+reference_2.png -> <Picture 2>
+```
+
+The Docker build parses both graphs and asserts their model names, reference wiring, sampler, scheduler, step count, Turbo LoRA and sigma shifts. See `workflows/README.md` for the editable node IDs.
+
+You can build a complete queue payload without copying JSON by hand:
+
+```bash
+python scripts/build_request.py \
+  --mode turbo \
+  --ref1 "https://example.com/ref1.jpg" \
+  --ref2 "https://example.com/ref2.jpg" \
+  --prompt "Use <Picture 1> and <Picture 2> as references. ..." \
+  --seconds 5 \
+  --seed 42 \
+  --output request.json
+```
+
 ## Reliability checks
 
 The image or worker deliberately fails instead of silently continuing when:
 
 - ComfyUI dependencies cannot resolve against the CUDA-specific Torch pins;
 - the RunPod SDK handler utilities do not import;
+- a bundled API workflow is malformed or its sampling recipe changes unexpectedly;
 - the pinned ComfyUI source does not contain the expected Ref2VA API;
 - the ComfyUI node graph cannot import during the CPU build smoke test;
 - `/runpod-volume` is missing or read-only;
@@ -62,13 +97,13 @@ The image or worker deliberately fails instead of silently continuing when:
 
 H3 is treated as one full-GPU job per worker. `concurrency_modifier` is fixed to `1`; scale horizontally by adding workers instead of running multiple H3 jobs on one GPU.
 
-Each RunPod job gets its own local input directory. Exact input filenames in the API workflow are rewritten to that job directory, and save/output prefixes are scoped to the job ID. Persistent results therefore land under:
+Each RunPod job gets its own local input directory. Exact input filenames in the API workflow are rewritten to that job directory, and save/output prefixes are scoped to the job ID **and save node ID**. Persistent results therefore land under:
 
 ```text
 /runpod-volume/outputs/<JOB_ID>/...
 ```
 
-URL inputs use RunPod SDK 1.12's hardened downloader rather than an unrestricted raw HTTP fetch.
+URL inputs use RunPod SDK 1.12's hardened SSRF-safe downloader. Its streamed download cap is automatically tied to `MAX_INPUT_MB` (512 MiB by default) instead of using the SDK's much larger generic default.
 
 ## Build
 
