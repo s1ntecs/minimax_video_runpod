@@ -9,14 +9,15 @@ For the complete copy/paste build and deployment procedure, read **[RUNBOOK.md](
 The deployment intentionally avoids floating core components:
 
 ```text
-RunPod base:       runpod/comfyui:1.4.7-cuda13.0
-PyTorch/CUDA:      base-image CUDA 13 pins (PyTorch 2.10 path)
-ComfyUI core:      v0.34.0 / 12d5279438bfefc058a269eae805ceab6047777f
-RunPod Python SDK: 1.12.0
-H3 model revision: dc559027db79c174125df4d827db55cd11178860
+RunPod base tag:    runpod/comfyui:1.4.7-cuda13.0
+RunPod base digest: sha256:bad26aad809a442a0d2674827d58c03f95686d0ea6d0d0e0cbebacd787488797
+PyTorch/CUDA:       base-image CUDA 13 pins (PyTorch 2.10 path)
+ComfyUI core:       v0.34.0 / 12d5279438bfefc058a269eae805ceab6047777f
+RunPod Python SDK:  1.12.0
+H3 model revision:  dc559027db79c174125df4d827db55cd11178860
 ```
 
-The ComfyUI bundled inside the RunPod image is **not** used as the H3 core. The Docker build installs the pinned H3-compatible ComfyUI source into `/opt/comfyui-h3` while reusing the base image's tested CUDA/Torch stack.
+The Dockerfile uses **tag + digest**, so even if the Docker Hub tag is later moved, this build still resolves the same linux/amd64 base manifest. The ComfyUI bundled inside the RunPod image is **not** used as the H3 core. The Docker build installs the pinned H3-compatible ComfyUI source into `/opt/comfyui-h3` while reusing the base image's tested CUDA/Torch stack.
 
 ## Models on the Network Volume
 
