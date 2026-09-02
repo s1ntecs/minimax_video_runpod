@@ -48,19 +48,24 @@ def main() -> None:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         print("[models] model lock acquired")
 
-        revision_changed = _manifest_revision() not in (None, REVISION)
+        manifest_revision = _manifest_revision()
+        # No manifest means these files may have been downloaded by the old worker
+        # from a floating `main`. Re-resolve them against our immutable revision once.
+        provenance_unknown = manifest_revision is None
+        revision_changed = manifest_revision not in (None, REVISION)
+        force_pinned_resolution = provenance_unknown or revision_changed
         manifest_files: dict[str, dict[str, int | str]] = {}
 
         for filename in FILES:
             target = ROOT / filename
             target.parent.mkdir(parents=True, exist_ok=True)
 
-            if _is_valid(target) and not revision_changed:
+            if _is_valid(target) and not force_pinned_resolution:
                 print(f"[models] present: {filename} ({target.stat().st_size / 2**30:.2f} GiB)")
             else:
                 if target.exists() and not _is_valid(target):
                     target.unlink()
-                print(f"[models] downloading: {REPO}@{REVISION}/{filename}")
+                print(f"[models] resolving pinned file: {REPO}@{REVISION}/{filename}")
                 downloaded = Path(
                     hf_hub_download(
                         repo_id=REPO,
@@ -68,7 +73,7 @@ def main() -> None:
                         revision=REVISION,
                         local_dir=str(ROOT),
                         token=token,
-                        force_download=revision_changed,
+                        force_download=force_pinned_resolution,
                     )
                 )
                 if not _is_valid(target):
