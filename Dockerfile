@@ -25,7 +25,6 @@ COPY handler.py /app/handler.py
 COPY scripts/start.sh /app/start.sh
 COPY scripts/download_models.py /app/download_models.py
 COPY extra_model_paths.yaml /app/extra_model_paths.yaml
-COPY test_input.json /app/test_input.json
 
 RUN chmod +x /app/start.sh \
     && python -m py_compile /app/handler.py /app/download_models.py
