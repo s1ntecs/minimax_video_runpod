@@ -4,8 +4,6 @@
 # is intentionally NOT used for H3: it is older than the current H3 Ref2VA nodes.
 FROM runpod/comfyui:1.4.7-cuda13.0
 
-ARG COMFYUI_COMMIT=12d5279438bfefc058a269eae805ceab6047777f
-
 ENTRYPOINT []
 USER root
 WORKDIR /app
@@ -13,6 +11,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH=/opt/h3-venv/bin:${PATH} \
+    COMFYUI_COMMIT=12d5279438bfefc058a269eae805ceab6047777f \
     COMFYUI_DIR=/opt/comfyui-h3 \
     COMFYUI_HOST=127.0.0.1 \
     COMFYUI_PORT=8188 \
@@ -29,8 +28,8 @@ COPY requirements.txt constraints.txt /app/
 RUN python -m venv --system-site-packages /opt/h3-venv \
     && /opt/h3-venv/bin/python -m pip install --no-cache-dir --upgrade "pip==25.2"
 
-# Fetch an immutable ComfyUI source commit. v0.34.0 resolves to this SHA.
-RUN COMFYUI_COMMIT="${COMFYUI_COMMIT}" /opt/h3-venv/bin/python - <<'PY'
+# Fetch immutable ComfyUI source. The pinned commit is the v0.34.0 release.
+RUN /opt/h3-venv/bin/python - <<'PY'
 import os
 import shutil
 import tarfile
@@ -56,8 +55,8 @@ with tempfile.TemporaryDirectory() as tmp:
 (dest / ".pinned_commit").write_text(commit + "\n", encoding="utf-8")
 PY
 
-# Keep the base image's Torch/CUDA pins, add the exact dependency set required
-# by the pinned ComfyUI release, and bound packages with known breaking majors.
+# Keep the base image's Torch/CUDA pins, add the dependency set required by the
+# pinned ComfyUI release, and bound packages with known breaking majors.
 RUN /opt/h3-venv/bin/python -m pip install --no-cache-dir \
       --constraint /opt/comfyui-runtime-constraints.txt \
       --constraint /app/constraints.txt \
@@ -71,19 +70,24 @@ COPY scripts/download_models.py /app/download_models.py
 COPY extra_model_paths.yaml /app/extra_model_paths.yaml
 
 RUN chmod +x /app/start.sh \
-    && python -m py_compile /app/handler.py /app/download_models.py
+    && python -m py_compile /app/handler.py /app/download_models.py \
+    && cd /app \
+    && python -c "import handler; from runpod.serverless.utils import download_files_from_urls; print('handler import OK')"
 
-# Fail the Docker build if the CUDA stack or the H3 Ref2VA node is missing.
+# Fail the Docker build if CUDA or the exact H3 Ref2VA API implementation is missing.
 RUN python - <<'PY'
+import os
 from pathlib import Path
 import torch
 
 root = Path('/opt/comfyui-h3')
 assert root.joinpath('main.py').is_file(), 'Pinned ComfyUI main.py is missing'
-assert root.joinpath('.pinned_commit').read_text().strip() == '12d5279438bfefc058a269eae805ceab6047777f'
+assert root.joinpath('.pinned_commit').read_text().strip() == os.environ['COMFYUI_COMMIT']
 source = root.joinpath('comfy_extras/nodes_minimax_h3.py').read_text(encoding='utf-8')
 assert 'class MiniMaxH3ReferenceToVideo' in source, 'MiniMaxH3ReferenceToVideo is missing'
 assert 'io.Autogrow.Input("ref_images"' in source, 'Expected Ref2VA autogrow API is missing'
+assert 'prefix="ref_image_", min=0, max=9' in source, 'Unexpected Ref2VA image API'
+assert 'prefix="ref_video_", min=0, max=3' in source, 'Unexpected Ref2VA video API'
 major, minor = map(int, torch.__version__.split('+')[0].split('.')[:2])
 assert (major, minor) >= (2, 10), f'Expected torch >=2.10, got {torch.__version__}'
 assert torch.version.cuda and torch.version.cuda.startswith('13.'), f'Expected CUDA 13 torch build, got {torch.version.cuda}'
