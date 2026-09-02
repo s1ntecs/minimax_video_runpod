@@ -77,16 +77,17 @@ def _is_output_prefix_key(key: str) -> bool:
 
 
 def _scope_output_prefixes(workflow: dict[str, Any], job_id: str) -> None:
-    for node in workflow.values():
+    for node_id, node in workflow.items():
         if not isinstance(node, dict) or not _is_save_node(node):
             continue
         inputs = node.get("inputs")
         if not isinstance(inputs, dict):
             continue
+        safe_node_id = _safe_segment(str(node_id), "node")
         for key, value in list(inputs.items()):
             if _is_output_prefix_key(str(key)) and isinstance(value, str):
                 leaf = Path(value.replace("\\", "/")).name or "output"
-                inputs[key] = f"{job_id}/{leaf}"
+                inputs[key] = f"{job_id}/{safe_node_id}_{leaf}"
 
 
 def _prepare_workflow(workflow: dict[str, Any], replacements: dict[str, str], job_id: str) -> dict[str, Any]:
