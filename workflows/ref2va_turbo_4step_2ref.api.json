@@ -1,0 +1,171 @@
+{
+  "92": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "video/MiniMax_H3_turbo",
+      "format": "auto",
+      "codec": "auto",
+      "video": ["130", 0]
+    },
+    "_meta": {"title": "SaveVideo"}
+  },
+  "115": {
+    "class_type": "ResolutionSelector",
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 0.5,
+      "multiple": 32
+    },
+    "_meta": {"title": "Resolution Selector — Turbo training scale"}
+  },
+  "119": {
+    "class_type": "VAELoader",
+    "inputs": {"vae_name": "minimax_h3_video_vae_fp16.safetensors"},
+    "_meta": {"title": "Load Video VAE"}
+  },
+  "120": {
+    "class_type": "VAELoader",
+    "inputs": {"vae_name": "minimax_h3_audio_vae_fp32.safetensors"},
+    "_meta": {"title": "Load Audio VAE"}
+  },
+  "121": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {"samples": ["125", 0], "vae": ["120", 0]},
+    "_meta": {"title": "Decode Audio"}
+  },
+  "122": {
+    "class_type": "VAEDecode",
+    "inputs": {"samples": ["125", 0], "vae": ["119", 0]},
+    "_meta": {"title": "Decode Video"}
+  },
+  "123": {
+    "class_type": "KSamplerSelect",
+    "inputs": {"sampler_name": "euler"},
+    "_meta": {"title": "Turbo Sampler — Euler"}
+  },
+  "124": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 4,
+      "denoise": 1.0,
+      "model": ["141", 0]
+    },
+    "_meta": {"title": "Turbo Scheduler — 4 steps"}
+  },
+  "125": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["129", 0],
+      "guider": ["126", 0],
+      "sampler": ["123", 0],
+      "sigmas": ["124", 0],
+      "latent_image": ["136", 1]
+    },
+    "_meta": {"title": "Sampler"}
+  },
+  "126": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": ["141", 0],
+      "conditioning": ["136", 0]
+    },
+    "_meta": {"title": "Guider"}
+  },
+  "127": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {"title": "Load Ref2VA Model"}
+  },
+  "128": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "_meta": {"title": "Load Qwen3-VL"}
+  },
+  "129": {
+    "class_type": "RandomNoise",
+    "inputs": {"noise_seed": 42},
+    "_meta": {"title": "Seed"}
+  },
+  "130": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 24,
+      "bit_depth": 8,
+      "images": ["122", 0],
+      "audio": ["121", 0]
+    },
+    "_meta": {"title": "Create Video"}
+  },
+  "131": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": ["132", 0]
+    },
+    "_meta": {"title": "Seconds to Valid H3 Frame Count"}
+  },
+  "132": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {"value": 5.0},
+    "_meta": {"title": "Duration Seconds"}
+  },
+  "136": {
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "inputs": {
+      "prompt": ["138", 0],
+      "width": ["115", 0],
+      "height": ["115", 1],
+      "length": ["131", 1],
+      "ref_image_size": "match",
+      "clip": ["128", 0],
+      "vae": ["119", 0],
+      "audio_vae": ["120", 0],
+      "ref_images.ref_image_0": ["137", 0],
+      "ref_images.ref_image_1": ["139", 0]
+    },
+    "_meta": {"title": "MiniMax H3 Reference to Video"}
+  },
+  "137": {
+    "class_type": "LoadImage",
+    "inputs": {"image": "reference_1.png"},
+    "_meta": {"title": "Reference 1"}
+  },
+  "138": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "integrated_multimodal_description: Use <Picture 1> and <Picture 2> as visual references. Preserve the referenced subjects faithfully, then generate a coherent cinematic shot with natural motion and camera movement.\n\noverall_soundscape: Natural synchronized ambience and sound effects appropriate to the scene.\n\nnon_diegetic_music: N/A"
+    },
+    "_meta": {"title": "Prompt"}
+  },
+  "139": {
+    "class_type": "LoadImage",
+    "inputs": {"image": "reference_2.png"},
+    "_meta": {"title": "Reference 2"}
+  },
+  "140": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": ["127", 0],
+      "lora_name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "strength_model": 1.0
+    },
+    "_meta": {"title": "Ref2VA Turbo LoRA — strength 1.0"}
+  },
+  "141": {
+    "class_type": "MiniMaxH3SigmaShift",
+    "inputs": {
+      "model": ["140", 0],
+      "shift_video": 12.0,
+      "shift_audio": 3.0
+    },
+    "_meta": {"title": "ModelSamplingMiniMaxH3 — 12/3"}
+  }
+}
