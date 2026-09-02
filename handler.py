@@ -22,7 +22,7 @@ OUTPUT_ROOT = Path(os.environ.get("OUTPUT_ROOT", "/runpod-volume/outputs"))
 MODEL_ROOT = Path(os.environ.get("MODEL_ROOT", "/runpod-volume/models"))
 DEFAULT_TIMEOUT = int(os.environ.get("INFERENCE_TIMEOUT", "1800"))
 MAX_TIMEOUT = int(os.environ.get("MAX_INFERENCE_TIMEOUT", "3600"))
-MAX_INLINE_MB = int(os.environ.get("MAX_INLINE_OUTPUT_MB", "18"))
+MAX_INLINE_MB = int(os.environ.get("MAX_INLINE_OUTPUT_MB", "6"))
 MAX_INPUT_MB = int(os.environ.get("MAX_INPUT_MB", "512"))
 # Ref2VA supports 9 images + 3 videos + 3 video soundtracks + 3 standalone audios.
 MAX_INPUT_FILES = int(os.environ.get("MAX_INPUT_FILES", "20"))
