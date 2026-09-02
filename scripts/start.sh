@@ -7,6 +7,10 @@ export COMFYUI_PORT="${COMFYUI_PORT:-8188}"
 export MODEL_ROOT="${MODEL_ROOT:-/runpod-volume/models}"
 export OUTPUT_ROOT="${OUTPUT_ROOT:-/runpod-volume/outputs}"
 export INPUT_ROOT="${INPUT_ROOT:-/tmp/minimax-h3/input}"
+export MAX_INPUT_MB="${MAX_INPUT_MB:-512}"
+# RunPod 1.12's SSRF-safe downloader defaults to 5 GiB. Tie its streamed cap to
+# the worker's own per-file input limit so oversized URLs stop during download.
+export RUNPOD_MAX_DOWNLOAD_BYTES="${RUNPOD_MAX_DOWNLOAD_BYTES:-$((MAX_INPUT_MB * 1024 * 1024))}"
 
 if [[ ! -d /runpod-volume ]]; then
   echo "[startup] /runpod-volume is missing. Attach a RunPod Network Volume." >&2
