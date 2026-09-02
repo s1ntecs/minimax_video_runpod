@@ -71,11 +71,12 @@ RUN /opt/h3-venv/bin/python -m pip install --no-cache-dir \
 COPY handler.py /app/handler.py
 COPY scripts/start.sh /app/start.sh
 COPY scripts/download_models.py /app/download_models.py
+COPY scripts/build_request.py /app/build_request.py
 COPY extra_model_paths.yaml /app/extra_model_paths.yaml
 COPY workflows /app/workflows
 
-RUN chmod +x /app/start.sh \
-    && python -m py_compile /app/handler.py /app/download_models.py \
+RUN chmod +x /app/start.sh /app/build_request.py \
+    && python -m py_compile /app/handler.py /app/download_models.py /app/build_request.py \
     && cd /app \
     && python -c "import handler; from runpod.serverless.utils import download_files_from_urls; print('handler import OK')"
 
