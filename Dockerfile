@@ -72,11 +72,55 @@ COPY handler.py /app/handler.py
 COPY scripts/start.sh /app/start.sh
 COPY scripts/download_models.py /app/download_models.py
 COPY extra_model_paths.yaml /app/extra_model_paths.yaml
+COPY workflows /app/workflows
 
 RUN chmod +x /app/start.sh \
     && python -m py_compile /app/handler.py /app/download_models.py \
     && cd /app \
     && python -c "import handler; from runpod.serverless.utils import download_files_from_urls; print('handler import OK')"
+
+# Validate the bundled API-format workflows and their exact sampling recipes.
+RUN python - <<'PY'
+import json
+from pathlib import Path
+
+root = Path('/app/workflows')
+quality = json.loads((root / 'ref2va_quality_2ref.api.json').read_text(encoding='utf-8'))
+turbo = json.loads((root / 'ref2va_turbo_4step_2ref.api.json').read_text(encoding='utf-8'))
+
+for name, graph in [('quality', quality), ('turbo', turbo)]:
+    assert isinstance(graph, dict) and graph, f'{name} workflow is empty'
+    classes = {node.get('class_type') for node in graph.values() if isinstance(node, dict)}
+    required = {
+        'MiniMaxH3ReferenceToVideo', 'UNETLoader', 'CLIPLoader', 'VAELoader',
+        'SamplerCustomAdvanced', 'CreateVideo', 'SaveVideo', 'LoadImage'
+    }
+    assert required <= classes, f'{name} workflow is missing nodes: {required - classes}'
+    assert graph['127']['inputs']['unet_name'] == 'minimax_h3_ref2va_pruned_int8_convrot.safetensors'
+    assert graph['128']['inputs']['clip_name'] == 'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'
+    assert graph['137']['inputs']['image'] == 'reference_1.png'
+    assert graph['139']['inputs']['image'] == 'reference_2.png'
+    assert graph['136']['inputs']['ref_images.ref_image_0'] == ['137', 0]
+    assert graph['136']['inputs']['ref_images.ref_image_1'] == ['139', 0]
+
+assert quality['123']['inputs']['sampler_name'] == 'res_multistep'
+assert quality['124']['inputs']['scheduler'] == 'simple'
+assert quality['124']['inputs']['steps'] == 20
+assert not any(node.get('class_type') == 'LoraLoaderModelOnly' for node in quality.values())
+
+assert turbo['123']['inputs']['sampler_name'] == 'euler'
+assert turbo['124']['inputs']['scheduler'] == 'simple'
+assert turbo['124']['inputs']['steps'] == 4
+assert turbo['140']['class_type'] == 'LoraLoaderModelOnly'
+assert turbo['140']['inputs']['lora_name'] == 'minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors'
+assert turbo['140']['inputs']['strength_model'] == 1.0
+assert turbo['141']['class_type'] == 'MiniMaxH3SigmaShift'
+assert turbo['141']['inputs']['shift_video'] == 12.0
+assert turbo['141']['inputs']['shift_audio'] == 3.0
+assert turbo['124']['inputs']['model'] == ['141', 0]
+assert turbo['126']['inputs']['model'] == ['141', 0]
+print('bundled Ref2VA workflows OK')
+PY
 
 # Fail the Docker build if CUDA or the exact H3 Ref2VA API implementation is missing.
 RUN python - <<'PY'
