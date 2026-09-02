@@ -72,11 +72,12 @@ COPY handler.py /app/handler.py
 COPY scripts/start.sh /app/start.sh
 COPY scripts/download_models.py /app/download_models.py
 COPY scripts/build_request.py /app/build_request.py
+COPY scripts/validate_comfy_runtime.py /app/validate_comfy_runtime.py
 COPY extra_model_paths.yaml /app/extra_model_paths.yaml
 COPY workflows /app/workflows
 
-RUN chmod +x /app/start.sh /app/build_request.py \
-    && python -m py_compile /app/handler.py /app/download_models.py /app/build_request.py \
+RUN chmod +x /app/start.sh /app/build_request.py /app/validate_comfy_runtime.py \
+    && python -m py_compile /app/handler.py /app/download_models.py /app/build_request.py /app/validate_comfy_runtime.py \
     && cd /app \
     && python -c "import handler; from runpod.serverless.utils import download_files_from_urls; print('handler import OK')"
 
@@ -123,7 +124,7 @@ assert turbo['126']['inputs']['model'] == ['141', 0]
 print('bundled Ref2VA workflows OK')
 PY
 
-# Fail the Docker build if CUDA or the exact H3 Ref2VA API implementation is missing.
+# Fail the Docker build if CUDA or the exact H3 Ref2VA source API is missing.
 RUN python - <<'PY'
 import os
 from pathlib import Path
@@ -146,8 +147,9 @@ print('torch=', torch.__version__)
 print('cuda=', torch.version.cuda)
 PY
 
-# Imports the full ComfyUI node graph during the image build. This catches
-# dependency/import regressions before a GPU worker is ever provisioned.
+# Import-only CI smoke test, then a real CPU ComfyUI HTTP server that proves
+# every class_type referenced by the bundled workflows is actually registered.
 RUN cd /opt/comfyui-h3 && timeout 300 python main.py --quick-test-for-ci --cpu
+RUN python /app/validate_comfy_runtime.py
 
 CMD ["/app/start.sh"]
