@@ -91,6 +91,8 @@ assert 'class MiniMaxH3ReferenceToVideo' in source, 'MiniMaxH3ReferenceToVideo i
 assert 'io.Autogrow.Input("ref_images"' in source, 'Expected Ref2VA autogrow API is missing'
 assert 'prefix="ref_image_", min=0, max=9' in source, 'Unexpected Ref2VA image API'
 assert 'prefix="ref_video_", min=0, max=3' in source, 'Unexpected Ref2VA video API'
+assert 'prefix="ref_video_audio_", min=0, max=3' in source, 'Unexpected Ref2VA video-audio API'
+assert 'prefix="ref_audio_", min=0, max=3' in source, 'Unexpected Ref2VA audio API'
 major, minor = map(int, torch.__version__.split('+')[0].split('.')[:2])
 assert (major, minor) >= (2, 10), f'Expected torch >=2.10, got {torch.__version__}'
 assert torch.version.cuda and torch.version.cuda.startswith('13.'), f'Expected CUDA 13 torch build, got {torch.version.cuda}'
