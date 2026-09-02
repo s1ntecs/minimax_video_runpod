@@ -19,6 +19,9 @@ ENV PYTHONUNBUFFERED=1 \
     INPUT_ROOT=/tmp/minimax-h3/input \
     OUTPUT_ROOT=/runpod-volume/outputs \
     HF_MODEL_REVISION=dc559027db79c174125df4d827db55cd11178860 \
+    MAX_INLINE_OUTPUT_MB=6 \
+    MAX_INPUT_MB=512 \
+    MAX_INPUT_FILES=20 \
     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 COPY requirements.txt constraints.txt /app/
