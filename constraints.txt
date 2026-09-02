@@ -1,0 +1,4 @@
+# Torch/torchvision/torchaudio are pinned by /opt/comfyui-runtime-constraints.txt
+# in the RunPod base image. Keep these breaking majors out of the H3 runtime.
+transformers>=4.50.3,<5
+huggingface-hub>=0.34.4,<1.0
