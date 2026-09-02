@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-# CUDA 13 / PyTorch 2.10 base for Blackwell. The ComfyUI bundled in this image
-# is intentionally NOT used for H3: it is older than the current H3 Ref2VA nodes.
-FROM runpod/comfyui:1.4.7-cuda13.0
+# Immutable linux/amd64 CUDA 13 / PyTorch 2.10 base for Blackwell.
+# Tag kept for readability; digest prevents the base from changing underneath us.
+# The ComfyUI bundled in this image is intentionally NOT used for H3.
+FROM runpod/comfyui:1.4.7-cuda13.0@sha256:bad26aad809a442a0d2674827d58c03f95686d0ea6d0d0e0cbebacd787488797
 
 ENTRYPOINT []
 USER root
