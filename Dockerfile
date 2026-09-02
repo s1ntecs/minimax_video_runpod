@@ -3,12 +3,14 @@
 # Pinned RunPod CUDA 13 / PyTorch stack. Do not replace with :latest.
 FROM runpod/comfyui:1.4.7-cuda13.0
 
+# Clear the interactive pod entrypoint. Serverless should execute only our worker.
+ENTRYPOINT []
+
 USER root
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    HF_HUB_ENABLE_HF_TRANSFER=1 \
     COMFYUI_DIR=/opt/comfyui-baked \
     COMFYUI_HOST=127.0.0.1 \
     COMFYUI_PORT=8188 \
@@ -36,6 +38,7 @@ root = Path('/opt/comfyui-baked')
 assert root.joinpath('main.py').is_file(), 'ComfyUI main.py not found in pinned base image'
 major, minor = map(int, torch.__version__.split('+')[0].split('.')[:2])
 assert (major, minor) >= (2, 10), f'Expected torch >=2.10, got {torch.__version__}'
+assert torch.version.cuda and torch.version.cuda.startswith('13.'), f'Expected CUDA 13 torch build, got {torch.version.cuda}'
 print('torch=', torch.__version__)
 print('cuda=', torch.version.cuda)
 PY
