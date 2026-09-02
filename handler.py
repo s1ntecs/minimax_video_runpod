@@ -24,7 +24,8 @@ DEFAULT_TIMEOUT = int(os.environ.get("INFERENCE_TIMEOUT", "1800"))
 MAX_TIMEOUT = int(os.environ.get("MAX_INFERENCE_TIMEOUT", "3600"))
 MAX_INLINE_MB = int(os.environ.get("MAX_INLINE_OUTPUT_MB", "18"))
 MAX_INPUT_MB = int(os.environ.get("MAX_INPUT_MB", "512"))
-MAX_INPUT_FILES = int(os.environ.get("MAX_INPUT_FILES", "16"))
+# Ref2VA supports 9 images + 3 videos + 3 video soundtracks + 3 standalone audios.
+MAX_INPUT_FILES = int(os.environ.get("MAX_INPUT_FILES", "20"))
 MIN_MODEL_BYTES = 1024 * 1024
 
 REQUIRED_MODELS = [
@@ -43,8 +44,8 @@ def _safe_segment(value: str, fallback: str = "job") -> str:
 
 def _safe_name(name: str) -> str:
     clean = Path(name).name
-    if not clean or clean in {".", ".."} or clean != name.replace("\\", "/").split("/")[-1]:
-        raise ValueError(f"Invalid input file name: {name!r}")
+    if not clean or clean in {".", ".."} or name != clean or "/" in name or "\\" in name:
+        raise ValueError(f"Invalid input file name: {name!r}; use a plain basename only")
     return clean
 
 
