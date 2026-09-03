@@ -1,0 +1,58 @@
+# Torch/torchvision/torchaudio and the packages already present in the
+# system-site-packages environment are frozen by the immutable RunPod CUDA 13
+# base-image digest. The packages below pin the additional/overriding wheels
+# expected by this repository's reproducible linux/amd64 build. The PR Docker
+# build smoke test is the source of truth: do not merge if dependency resolution,
+# pip check, ComfyUI quick-test, or the HTTP node-registration test fails.
+#
+# Keep this file in sync intentionally when upgrading RunPod SDK, ComfyUI or
+# the base image. Do not replace these with loose ranges in a production build.
+
+# H3 / Transformers compatibility
+transformers==4.57.6
+tokenizers==0.22.2
+huggingface-hub==0.36.2
+
+# RunPod SDK 1.12.0 resolved graph
+aiohttp-retry==2.9.1
+aiodns==4.0.4
+pycares==5.0.1
+backoff==2.2.1
+backports.zstd==1.7.0
+Brotli==1.2.0
+boto3==1.43.87
+botocore==1.43.87
+jmespath==1.1.0
+s3transfer==0.19.2
+colorama==0.4.6
+InquirerPy==0.3.4
+pfzy==0.3.4
+fastapi==0.141.1
+starlette==1.6.0
+fastapi-cli==0.0.32
+fastapi-cloud-cli==0.25.0
+agent-detector==2.0.0
+detect-installer==0.2.1
+fastar==0.12.0
+email-validator==2.3.0
+dnspython==2.8.0
+itsdangerous==2.2.0
+paramiko==5.0.0
+bcrypt==5.0.0
+invoke==3.0.3
+prettytable==3.18.0
+py-cpuinfo==9.0.0
+pydantic-extra-types==2.11.1
+python-multipart==0.0.32
+rich-toolkit==0.20.3
+rignore==0.8.1
+sentry-sdk==2.68.1
+tomli==2.4.1
+tomlkit==0.15.1
+tqdm-loggable==0.4.1
+uvicorn==0.52.4
+httptools==0.8.0
+uvloop==0.22.1
+watchdog==6.0.0
+watchfiles==1.2.0
+websockets==17.1
