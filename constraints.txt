@@ -1,7 +1,9 @@
 # Torch/torchvision/torchaudio and the packages already present in the
 # system-site-packages environment are frozen by the immutable RunPod CUDA 13
-# base-image digest. The packages below are the *additional/overriding* wheels
-# resolved in the successful linux/amd64 production Docker smoke test.
+# base-image digest. The packages below pin the additional/overriding wheels
+# expected by this repository's reproducible linux/amd64 build. The PR Docker
+# build smoke test is the source of truth: do not merge if dependency resolution,
+# pip check, ComfyUI quick-test, or the HTTP node-registration test fails.
 #
 # Keep this file in sync intentionally when upgrading RunPod SDK, ComfyUI or
 # the base image. Do not replace these with loose ranges in a production build.
